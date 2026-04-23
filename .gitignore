@@ -1,0 +1,9 @@
+.env
+*.pyc
+__pycache__/
+*.egg-info/
+build/
+dist/
+scheduler/scheduler
+.DS_Store
+.claude/
