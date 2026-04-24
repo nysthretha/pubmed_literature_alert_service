@@ -15,7 +15,10 @@ HTTP API), Python (enrichment worker + digest worker), RabbitMQ, PostgreSQL.
 - **M5a** — auth backend: user accounts, argon2id password hashing, Postgres-backed
   sessions with HttpOnly/SameSite=Strict cookies, login/logout/me endpoints,
   CLI admin bootstrap ✓
-- **M5b** and later: query CRUD, article endpoints scoped by user, frontend
+- **M5b** — CRUD/read endpoints for queries/articles/digests scoped by user,
+  admin endpoints for user management. Ownership enforced via Pattern A
+  (userID as mandatory repo arg) — see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) ✓
+- Later: frontend
 
 ## Seed query (applied by migrations)
 
@@ -90,8 +93,25 @@ Auth (public):
 - `POST /api/auth/logout` — clears session
 - `GET /api/auth/me` — returns `{"user":{...}}` for the current session, 401 otherwise
 
+Queries (auth required — scoped to current user):
+- `GET /api/queries` — list own queries with `article_count`
+- `POST /api/queries` — create; body `{name, query_string, ...}` (see [queries/handlers.go](scheduler/internal/queries/handlers.go) for full shape)
+- `GET /api/queries/{id}` · `PATCH /api/queries/{id}` · `DELETE /api/queries/{id}`
+- `POST /api/queries/{id}/repoll` — clear `last_polled_at` to trigger a re-poll next tick
+
+Articles (auth required — scoped via `query_matches`):
+- `GET /api/articles?limit=50&offset=0&query_id=N&since=<rfc3339>&search=<text>`
+- `GET /api/articles/{pmid}`
+
+Digests (auth required — scoped to current user):
+- `GET /api/digests` · `GET /api/digests/{id}` (detail includes per-article `matched_queries`)
+
+Admin (auth + admin required):
+- `GET /api/admin/users` · `POST /api/admin/users` · `PATCH /api/admin/users/{id}`
+- `DELETE /api/admin/users/{id}` (400 if self)
+- `POST /api/admin/users/{id}/reset-password`
+
 Operational:
-- `GET /articles/recent?limit=50` — recent articles with matched queries embedded
 - `POST /digest/trigger` — enqueue a manual digest run
 
 **First-time setup** requires creating an admin via CLI — see
