@@ -1,0 +1,68 @@
+# Dependabot: monthly PRs for real dependency drift across all four ecosystems
+# in this repo. Each ecosystem groups minor + patch updates into a single PR to
+# cut review overhead; major updates arrive separately because they usually need
+# a closer look.
+#
+# See https://docs.github.com/en/code-security/dependabot/dependabot-version-updates
+
+version: 2
+updates:
+  # Go scheduler (scheduler/go.mod)
+  - package-ecosystem: gomod
+    directory: /scheduler
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - go
+    groups:
+      go-minor-patch:
+        update-types:
+          - minor
+          - patch
+
+  # React frontend (web/package.json)
+  - package-ecosystem: npm
+    directory: /web
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - javascript
+    groups:
+      npm-minor-patch:
+        update-types:
+          - minor
+          - patch
+
+  # Python workers (worker/pyproject.toml — PEP 621)
+  - package-ecosystem: pip
+    directory: /worker
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - python
+    groups:
+      python-minor-patch:
+        update-types:
+          - minor
+          - patch
+
+  # GitHub Actions workflow files (.github/workflows/*)
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - ci
+    groups:
+      actions-minor-patch:
+        update-types:
+          - minor
+          - patch
