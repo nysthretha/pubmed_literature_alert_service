@@ -5,6 +5,19 @@ from datetime import date
 
 from psycopg import Connection
 
+# TODO(multi-user): the digest worker currently assumes a single user and
+# hardcodes SINGLE_USER_ID for ownership scoping. When we iterate for
+# multiple users, replace this with an outer loop over users (or a queue
+# message per user) and thread user_id through the three functions below
+# that currently read SINGLE_USER_ID: already_sent_today,
+# fetch_pending_rows, insert_pending_digest.
+#
+# Context: user_id became NOT NULL on digests in migration 00006 (M5a), so
+# every INSERT must carry it. For the current single-user deployment this
+# is fine; the constant also scopes reads so nothing leaks across users
+# once real users exist.
+SINGLE_USER_ID = 1
+
 
 @dataclass
 class PendingRow:
@@ -23,15 +36,21 @@ class PendingRow:
 def already_sent_today(conn: Connection, local_date: date) -> bool:
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT 1 FROM digests WHERE sent_local_date = %s AND status = 'sent'",
-            (local_date,),
+            "SELECT 1 FROM digests "
+            "WHERE user_id = %s AND sent_local_date = %s AND status = 'sent'",
+            (SINGLE_USER_ID, local_date),
         )
         return cur.fetchone() is not None
 
 
 def fetch_pending_rows(conn: Connection) -> list[PendingRow]:
-    """Articles not yet included in any digest, joined with their query matches.
-    Rejected articles (no query_matches row) are naturally excluded by the INNER JOIN.
+    """Articles not yet included in any digest for this user, joined with
+    their query matches. Rejected articles (no query_matches row) are
+    naturally excluded by the INNER JOIN.
+
+    Scoped to SINGLE_USER_ID via queries.user_id and via the NOT EXISTS
+    subquery on digest_articles, so future multi-user iteration won't see
+    one user's articles leaking into another user's digest.
     """
     with conn.cursor() as cur:
         cur.execute(
@@ -40,10 +59,15 @@ def fetch_pending_rows(conn: Connection) -> list[PendingRow]:
                    q.id, q.name, q.notes
             FROM articles a
             JOIN query_matches qm ON qm.pmid = a.pmid
-            JOIN queries q ON q.id = qm.query_id
-            WHERE NOT EXISTS (SELECT 1 FROM digest_articles da WHERE da.pmid = a.pmid)
+            JOIN queries q ON q.id = qm.query_id AND q.user_id = %s
+            WHERE NOT EXISTS (
+                SELECT 1 FROM digest_articles da
+                JOIN digests d ON d.id = da.digest_id
+                WHERE da.pmid = a.pmid AND d.user_id = %s
+            )
             ORDER BY q.name, a.publication_date DESC NULLS LAST, a.pmid
-            """
+            """,
+            (SINGLE_USER_ID, SINGLE_USER_ID),
         )
         rows = cur.fetchall()
     return [
@@ -59,8 +83,9 @@ def fetch_pending_rows(conn: Connection) -> list[PendingRow]:
 def insert_pending_digest(conn: Connection, manual: bool) -> int:
     with conn.cursor() as cur:
         cur.execute(
-            "INSERT INTO digests (status, manual) VALUES ('pending', %s) RETURNING id",
-            (manual,),
+            "INSERT INTO digests (user_id, status, manual) "
+            "VALUES (%s, 'pending', %s) RETURNING id",
+            (SINGLE_USER_ID, manual),
         )
         return cur.fetchone()[0]
 
