@@ -33,7 +33,7 @@
     // Value gotcha: TS 5.9.x's diagnostic text suggests `"6.0"` but its
     // parser only accepts `"5.0"` (TS5103 on anything else). Upgrade this
     // to `"6.0"` only after pinning typescript ^6.0.
-    "ignoreDeprecations": "5.0"
+    "ignoreDeprecations": "6.0"
   },
   "include": ["src"]
 }
