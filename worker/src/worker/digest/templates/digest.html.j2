@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>PubMed Alerts — {{ data.date }}</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; color:#222; max-width:760px; margin:0 auto; padding:20px; line-height:1.5;">
+  <h1 style="font-size:20px; margin:0 0 4px 0;">PubMed Alerts — {{ data.date.strftime("%Y-%m-%d") }}</h1>
+  <p style="color:#666; margin:0 0 20px 0; font-size:14px;">
+    {{ data.total_articles }} new {{ "article" if data.total_articles == 1 else "articles" }}
+    across {{ data.total_queries }} {{ "query" if data.total_queries == 1 else "queries" }}
+  </p>
+
+  {% for group in data.groups %}
+  <section style="margin-top:28px; border-top:1px solid #eee; padding-top:16px;">
+    <h2 style="font-size:16px; color:#0366d6; margin:0 0 4px 0;">
+      {{ group.query_name }}
+      <span style="color:#666; font-weight:normal;">· {{ group.articles|length }}</span>
+    </h2>
+    {% if group.query_notes %}
+    <p style="color:#888; font-style:italic; margin:0 0 14px 0; font-size:13px;">{{ group.query_notes }}</p>
+    {% endif %}
+
+    {% for a in group.articles %}
+    <article style="margin:16px 0 22px 0;">
+      <h3 style="font-size:15px; margin:0 0 4px 0; font-weight:600;">
+        <a href="https://pubmed.ncbi.nlm.nih.gov/{{ a.pmid }}/" style="color:#0366d6; text-decoration:none;">{{ a.title }}</a>
+      </h3>
+      <div style="color:#666; font-size:13px; margin-bottom:8px;">{{ a.authors_summary }} — <em>{{ a.journal or "Unknown journal" }}</em>{% if a.publication_date %}, {{ a.publication_date.strftime("%Y-%m-%d") }}{% endif %} — PMID <a href="https://pubmed.ncbi.nlm.nih.gov/{{ a.pmid }}/" style="color:#666;">{{ a.pmid }}</a></div>
+      {% if a.abstract %}
+      <div style="font-size:14px;">{{ a.abstract|nl2br }}</div>
+      {% endif %}
+    </article>
+    {% endfor %}
+  </section>
+  {% endfor %}
+
+  <footer style="margin-top:36px; padding-top:12px; border-top:1px solid #eee; color:#999; font-size:12px;">
+    Rendered {{ data.sent_at.strftime("%Y-%m-%d %H:%M %Z") }}. Comments, retractions, and errata are filtered out.
+  </footer>
+</body>
+</html>

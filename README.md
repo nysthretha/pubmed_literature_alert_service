@@ -1,24 +1,30 @@
 # PubMed Literature Alert Service
 
 Personal capstone project: a service that subscribes to PubMed literature alerts,
-enriches the results, and delivers periodic digests. Stack: Go (scheduler + HTTP API),
-Python (enrichment / digest workers), RabbitMQ, PostgreSQL.
+enriches the results, and delivers periodic email digests. Stack: Go (scheduler +
+HTTP API), Python (enrichment worker + digest worker), RabbitMQ, PostgreSQL.
 
-## Milestone 2 — Real PubMed Ingestion
+## Milestones
 
-The walking skeleton has been replaced with a real polling pipeline:
+- **M1** — walking skeleton (Go publishes heartbeats, Python consumes) ✓
+- **M2** — real PubMed ingestion: esearch + efetch, articles stored with dedup ✓
+- **M3** — multi-query support: per-query poll intervals and filters (min abstract
+  length, publication-type allow/blocklists), `GET /articles/recent` endpoint ✓
+- **M4** — daily email digest: scheduled + manual-trigger delivery with Jinja HTML
+  templates, SMTP with STARTTLS, Mailpit for dev, `POST /digest/trigger` ✓
+- **M5** — later: dead-letter queue, bounded retries, observability
 
-- **scheduler** (Go) runs migrations on startup (via embedded [goose](https://github.com/pressly/goose)), then on each tick reads all rows from `queries`, calls PubMed **esearch** for each, and publishes every returned PMID to the `pmid.fetch` queue.
-- **worker** (Python) consumes `pmid.fetch`. For each PMID: if already in `articles`, just inserts a `query_matches` row (dedup fast-path); otherwise calls **efetch**, parses the XML with `lxml`, and inserts into `articles` + `query_matches` in a single transaction.
-- **postgres** holds the schema (`queries`, `articles`, `query_matches`) managed by goose migrations under [scheduler/migrations/](scheduler/migrations/).
-
-No email digest yet — that's a later milestone.
-
-### Seed query (applied by migration)
+## Seed query (applied by migrations)
 
 | name | query_string |
 |---|---|
 | HEART score | `("HEART score"[tiab] OR "HEART pathway"[tiab]) AND humans[mh]` |
+
+Filters applied: `min_abstract_length=200`; default publication-type blocklist of
+`{Comment, Retraction of Publication, Published Erratum}`.
+
+Add more queries manually via `psql` — the schema fields (`poll_interval_seconds`,
+`is_active`, filter columns, `notes`) all have sensible defaults.
 
 ## Prerequisites
 
@@ -30,47 +36,82 @@ No email digest yet — that's a later milestone.
 cp .env.example .env
 ```
 
-**You must set `PUBMED_EMAIL`** — NCBI requires contact info on every E-utilities request and may block traffic without it.
-Optionally request an API key at <https://www.ncbi.nlm.nih.gov/account/> and set `PUBMED_API_KEY` to raise the rate limit from 3 req/sec to 10 req/sec.
+Edit `.env`:
+- Set `PUBMED_EMAIL` (required by NCBI).
+- Optionally set `PUBMED_API_KEY` (raises rate limit from 3 → 10 req/sec).
+- Set `DIGEST_RECIPIENT`, `DIGEST_TIMEZONE`, `DIGEST_SEND_HOUR`.
+- `DIGEST_MODE` defaults to `file` (safe — no email sent). Switch to `mailpit` or
+  `smtp` when ready.
 
 ## Run
 
 ```bash
-docker compose up --build
+docker compose up --build -d
 ```
 
-First run polls the last 30 days of results for the seed query; subsequent runs poll from `last_polled_at` to now (EDAT — entrez index date). Default poll interval is 6 hours.
+Services:
+- `scheduler` — Go; polls PubMed, runs migrations, serves `http://localhost:8080`
+- `worker` — Python; enrichment (efetch + parse + filter + insert)
+- `digest_worker` — Python; renders/sends the daily digest
+- `postgres` — schema + data
+- `rabbitmq` — queues: `pmid.fetch` (durable), `digest.manual_trigger` (ephemeral)
+- `mailpit` — fake SMTP + web UI at `http://localhost:8025` (for dev only)
 
-## Verify
+## Digest modes
 
-Within ~1 minute of startup, logs should include:
+Set `DIGEST_MODE` in `.env`:
 
-```
-scheduler | {"level":"INFO","msg":"migrations applied",...}
-scheduler | {"level":"INFO","msg":"poll start","query_id":1,"name":"HEART score","mindate":"2026/03/24","maxdate":"2026/04/23"}
-scheduler | {"level":"INFO","msg":"poll end","query_id":1,"name":"HEART score","total_reported":N,"published":N,...}
-worker    | {"level":"INFO","msg":"efetch ok","pmid":"...","duration_ms":...}
-worker    | {"level":"INFO","msg":"stored","pmid":"...","new":true,"title":"..."}
-```
+| mode | behavior |
+|---|---|
+| `file` *(default)* | Render HTML to `./previews/<timestamp>.html`. No SMTP, no DB writes. Articles stay pending so you can iterate on the template. |
+| `mailpit` | Send to the local Mailpit container on port 1025 (no auth). Full DB flow (`digests` row, `digest_articles` inserts). View sent messages at <http://localhost:8025>. |
+| `smtp` | Send for real via `SMTP_HOST:SMTP_PORT` with STARTTLS. For Gmail, set `SMTP_USER=<your@gmail>`, `SMTP_PASSWORD=<app password>`. |
 
-Re-running (`docker compose restart scheduler`) should show `dedup` instead of `stored` for previously-seen PMIDs.
+### Gmail app password
 
-Inspect the data:
+1. Enable 2-Step Verification on your Google account.
+2. Go to <https://myaccount.google.com/apppasswords>, create a new app password
+   ("Mail" / custom name). Copy the 16-character string.
+3. In `.env`, set:
+   - `SMTP_HOST=smtp.gmail.com`
+   - `SMTP_PORT=587`
+   - `SMTP_USER=your-address@gmail.com`
+   - `SMTP_PASSWORD=<16-char app password>`
+   - `SMTP_FROM=your-address@gmail.com`
+   - `DIGEST_MODE=smtp`
+
+## HTTP endpoints (bound to 127.0.0.1:8080)
+
+- `GET /articles/recent?limit=50` — recent articles with matched queries embedded
+- `POST /digest/trigger` — enqueue a manual digest run
 
 ```bash
-docker compose exec postgres psql -U pubmed -d pubmed -c "SELECT pmid, title, publication_date FROM articles ORDER BY fetched_at DESC LIMIT 10;"
-docker compose exec postgres psql -U pubmed -d pubmed -c "SELECT q.name, COUNT(*) FROM query_matches qm JOIN queries q ON q.id = qm.query_id GROUP BY q.name;"
+curl -s 'http://localhost:8080/articles/recent?limit=10' | jq '.articles[] | {pmid, title, matched: [.matched_queries[].name]}'
+curl -X POST http://localhost:8080/digest/trigger
 ```
 
-RabbitMQ management UI: <http://localhost:15672> (guest / guest). Expect to see the `pmid.fetch` queue.
+Manual triggers bypass the scheduled-hour check but still respect "already sent
+today" (scheduled-path only) and "has pending articles". In `file` mode neither
+is checked — the render always happens.
+
+## Inspect
+
+```bash
+docker compose exec postgres psql -U pubmed -d pubmed -c \
+  "SELECT pmid, title, publication_date FROM articles ORDER BY fetched_at DESC LIMIT 10;"
+
+docker compose exec postgres psql -U pubmed -d pubmed -c \
+  "SELECT id, sent_at, sent_local_date, articles_included, status, manual FROM digests ORDER BY id DESC LIMIT 10;"
+```
+
+Queue status: <http://localhost:15672> (guest / guest).
 
 ## Tear down
 
 ```bash
-docker compose down -v
+docker compose down          # keep data
+docker compose down -v       # drop Postgres volume
 ```
-
-The `-v` flag drops the Postgres volume; omit to keep state.
 
 ## Layout
 
@@ -78,34 +119,51 @@ The `-v` flag drops the Postgres volume; omit to keep state.
 pubmed_literature_alert_service/
 ├── docker-compose.yml
 ├── .env.example
-├── scheduler/                    # Go
-│   ├── main.go                   # wiring + ticker loop
-│   ├── migrations/               # goose .sql files (embedded)
-│   │   └── 00001_init.sql
+├── previews/                        # (gitignored) digest HTML in file mode
+├── scheduler/                       # Go
+│   ├── main.go
+│   ├── migrations/*.sql             # goose migrations (embedded)
 │   ├── internal/
-│   │   ├── pubmed/               # esearch client + rate limiter
-│   │   ├── store/                # queries table, goose runner
-│   │   ├── publisher/            # RabbitMQ publish wrapper
-│   │   └── poller/               # per-tick orchestration
-│   ├── go.mod / go.sum
+│   │   ├── pubmed/                  # esearch client + rate limiter
+│   │   ├── store/                   # queries / migrations
+│   │   ├── publisher/               # pmid.fetch + digest.manual_trigger
+│   │   ├── poller/                  # per-tick orchestration
+│   │   └── httpapi/                 # GET /articles/recent, POST /digest/trigger
 │   └── Dockerfile
-└── worker/                       # Python
-    ├── pyproject.toml            # deps + entry point
-    └── src/
-        └── pubmed_worker/
-            ├── main.py           # consumer loop
-            ├── pubmed.py         # efetch + lxml parse
-            ├── db.py             # SQL inserts
-            ├── ratelimit.py
-            └── logging_setup.py
+└── worker/
+    ├── pyproject.toml
+    ├── Dockerfile                   # enrichment worker
+    ├── Dockerfile.digest            # digest worker
+    └── src/worker/
+        ├── __main__.py              # enrichment entry
+        ├── consumer.py / pipeline.py / parser.py / pubmed_client.py / filters.py
+        ├── db.py / logging_setup.py
+        └── digest/
+            ├── __main__.py          # digest entry
+            ├── scheduler.py         # sleep loop + manual trigger consumer
+            ├── builder.py           # group articles by query
+            ├── renderer.py          # Jinja2
+            ├── sender.py            # FileSender / SMTPSender
+            ├── db.py                # digest-specific SQL
+            └── templates/digest.html.j2
 ```
 
-## Rate limiting note
+## Notes
 
-Each service maintains its own rate limiter (3 req/sec without key, 10 req/sec with). If you add parallel workers later, the aggregate rate against NCBI will exceed the per-service cap. At that point, move the limiter behind a shared gate (e.g. Redis token bucket) or a dedicated fetch-proxy service. For M2 with a single worker, per-service is fine.
+**Rate limits.** Each service has its own limiter (3 or 10 req/s depending on
+`PUBMED_API_KEY`). With one worker we're fine; a parallel-worker deployment
+would need a shared limiter.
 
-## What's next
+**Horizontal scaling.** `DueQueries()` uses a single-scheduler pattern. To scale
+to multiple schedulers, switch to `SELECT ... FOR UPDATE SKIP LOCKED` and update
+`last_polled_at` in the same transaction to prevent double-polling (comment in
+[scheduler/internal/store/store.go](scheduler/internal/store/store.go)).
 
-- **M3**: HTTP API on the Go side — CRUD for queries, browsing articles, triggering a one-off poll.
-- **M4**: Email digest — scheduled delivery of new matches per query, with templating.
-- **M5**: Dead-letter queue + bounded retries; observability (OpenTelemetry or at least metrics).
+**Digest idempotency.** The partial unique index `digests_one_sent_per_day`
+(on `sent_local_date WHERE status='sent'`) guarantees at most one successful
+scheduled digest per local date. Manual triggers respect the same constraint.
+
+**RabbitMQ state.** The current compose does not mount a RabbitMQ volume — if
+RabbitMQ restarts, in-flight `pmid.fetch` messages are lost. In practice the
+scheduler re-fetches on its next due-poll; the worker's dedup path handles
+already-stored PMIDs. Not ideal but acceptable for a single-user deployment.

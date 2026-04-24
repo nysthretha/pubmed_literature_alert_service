@@ -25,10 +25,7 @@ import (
 //go:embed migrations/*.sql
 var migrationsFS embed.FS
 
-const (
-	fetchQueue = "pmid.fetch"
-	httpAddr   = ":8080"
-)
+const httpAddr = ":8080"
 
 func main() {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})))
@@ -58,7 +55,7 @@ func main() {
 	}
 	slog.Info("migrations applied")
 
-	pub, err := publisher.New(rabbitURL, fetchQueue)
+	pub, err := publisher.New(rabbitURL)
 	if err != nil {
 		slog.Error("rabbitmq connect failed", "err", err)
 		os.Exit(1)
@@ -74,7 +71,7 @@ func main() {
 
 	httpSrv := &http.Server{
 		Addr:              httpAddr,
-		Handler:           httpapi.NewRouter(db),
+		Handler:           httpapi.NewRouter(db, pub),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	go func() {
@@ -85,7 +82,7 @@ func main() {
 	}()
 
 	tick := time.Duration(tickSec) * time.Second
-	slog.Info("starting poller", "tick", tick.String(), "queue", fetchQueue, "api_key_present", apiKey != "")
+	slog.Info("starting poller", "tick", tick.String(), "queue", publisher.FetchQueue, "api_key_present", apiKey != "")
 
 	if err := p.RunOnce(ctx); err != nil && ctx.Err() == nil {
 		slog.Error("initial poll failed", "err", err)

@@ -10,10 +10,18 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
+const (
+	FetchQueue         = "pmid.fetch"
+	ManualTriggerQueue = "digest.manual_trigger"
+
+	// Manual trigger messages are ephemeral — if nobody consumes within 60s,
+	// the trigger is stale (user will re-click rather than see a stale digest).
+	manualTriggerTTLMs = 60_000
+)
+
 type Publisher struct {
-	conn  *amqp.Connection
-	ch    *amqp.Channel
-	queue string
+	conn *amqp.Connection
+	ch   *amqp.Channel
 }
 
 type FetchMessage struct {
@@ -21,7 +29,11 @@ type FetchMessage struct {
 	QueryID int64  `json:"query_id"`
 }
 
-func New(url, queue string) (*Publisher, error) {
+type TriggerMessage struct {
+	TriggeredAt string `json:"triggered_at"`
+}
+
+func New(url string) (*Publisher, error) {
 	var conn *amqp.Connection
 	var err error
 	for i := 1; i <= 5; i++ {
@@ -42,25 +54,43 @@ func New(url, queue string) (*Publisher, error) {
 		return nil, fmt.Errorf("channel: %w", err)
 	}
 
-	if _, err := ch.QueueDeclare(queue, true, false, false, false, nil); err != nil {
+	if _, err := ch.QueueDeclare(FetchQueue, true, false, false, false, nil); err != nil {
 		ch.Close()
 		conn.Close()
-		return nil, fmt.Errorf("queue declare: %w", err)
+		return nil, fmt.Errorf("declare %s: %w", FetchQueue, err)
 	}
 
-	return &Publisher{conn: conn, ch: ch, queue: queue}, nil
+	triggerArgs := amqp.Table{"x-message-ttl": int32(manualTriggerTTLMs)}
+	if _, err := ch.QueueDeclare(ManualTriggerQueue, false, false, false, false, triggerArgs); err != nil {
+		ch.Close()
+		conn.Close()
+		return nil, fmt.Errorf("declare %s: %w", ManualTriggerQueue, err)
+	}
+
+	return &Publisher{conn: conn, ch: ch}, nil
 }
 
-func (p *Publisher) Publish(ctx context.Context, msg FetchMessage) error {
+func (p *Publisher) PublishFetch(ctx context.Context, msg FetchMessage) error {
 	body, err := json.Marshal(msg)
 	if err != nil {
 		return err
 	}
 	pubCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	return p.ch.PublishWithContext(pubCtx, "", p.queue, false, false, amqp.Publishing{
+	return p.ch.PublishWithContext(pubCtx, "", FetchQueue, false, false, amqp.Publishing{
 		ContentType:  "application/json",
 		DeliveryMode: amqp.Persistent,
+		Body:         body,
+	})
+}
+
+func (p *Publisher) PublishManualTrigger(ctx context.Context) error {
+	body, _ := json.Marshal(TriggerMessage{TriggeredAt: time.Now().UTC().Format(time.RFC3339)})
+	pubCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	return p.ch.PublishWithContext(pubCtx, "", ManualTriggerQueue, false, false, amqp.Publishing{
+		ContentType:  "application/json",
+		DeliveryMode: amqp.Transient,
 		Body:         body,
 	})
 }

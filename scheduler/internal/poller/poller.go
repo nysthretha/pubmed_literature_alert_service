@@ -67,7 +67,7 @@ func (p *Poller) pollOne(ctx context.Context, q store.Query) error {
 		}
 		total = r.Count
 		for _, pmid := range r.PMIDs {
-			if err := p.publisher.Publish(ctx, publisher.FetchMessage{PMID: pmid, QueryID: q.ID}); err != nil {
+			if err := p.publisher.PublishFetch(ctx, publisher.FetchMessage{PMID: pmid, QueryID: q.ID}); err != nil {
 				return err
 			}
 			published++

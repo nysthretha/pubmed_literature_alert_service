@@ -26,6 +26,13 @@ services:
       timeout: 5s
       retries: 10
 
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "127.0.0.1:1025:1025"
+      - "127.0.0.1:8025:8025"
+    restart: unless-stopped
+
   scheduler:
     build: ./scheduler
     env_file: .env
@@ -39,8 +46,26 @@ services:
     restart: unless-stopped
 
   worker:
-    build: ./worker
+    build:
+      context: ./worker
+      dockerfile: Dockerfile
     env_file: .env
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      scheduler:
+        condition: service_started
+    restart: unless-stopped
+
+  digest_worker:
+    build:
+      context: ./worker
+      dockerfile: Dockerfile.digest
+    env_file: .env
+    volumes:
+      - ./previews:/app/digest-preview
     depends_on:
       rabbitmq:
         condition: service_healthy
