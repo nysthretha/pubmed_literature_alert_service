@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"database/sql"
-	"embed"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -15,20 +14,23 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 
+	"github.com/nysthretha/pubmed_literature_alert_service/scheduler/internal/auth"
 	"github.com/nysthretha/pubmed_literature_alert_service/scheduler/internal/httpapi"
 	"github.com/nysthretha/pubmed_literature_alert_service/scheduler/internal/poller"
 	"github.com/nysthretha/pubmed_literature_alert_service/scheduler/internal/publisher"
 	"github.com/nysthretha/pubmed_literature_alert_service/scheduler/internal/pubmed"
 	"github.com/nysthretha/pubmed_literature_alert_service/scheduler/internal/store"
+	"github.com/nysthretha/pubmed_literature_alert_service/scheduler/migrations"
 )
-
-//go:embed migrations/*.sql
-var migrationsFS embed.FS
 
 const httpAddr = ":8080"
 
 func main() {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})))
+
+	if dispatchCLI() {
+		return
+	}
 
 	rabbitURL := mustEnv("RABBITMQ_URL")
 	pgURL := mustEnv("POSTGRES_URL")
@@ -49,7 +51,7 @@ func main() {
 	}
 	defer db.Close()
 
-	if err := store.Migrate(db, migrationsFS); err != nil {
+	if err := store.Migrate(db, migrations.FS); err != nil {
 		slog.Error("migrations failed", "err", err)
 		os.Exit(1)
 	}
@@ -69,9 +71,22 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
+	cookieSecure := getEnv("AUTH_COOKIE_SECURE", "true") != "false"
+	if !cookieSecure {
+		slog.Warn("auth.cookie.secure_disabled",
+			"note", "Secure cookie flag disabled — do not use in production",
+			"env", "AUTH_COOKIE_SECURE=false",
+		)
+	}
+	authCfg := auth.Config{
+		DB:           db,
+		RateLimiter:  auth.NewLoginRateLimiter(),
+		CookieSecure: cookieSecure,
+	}
+
 	httpSrv := &http.Server{
 		Addr:              httpAddr,
-		Handler:           httpapi.NewRouter(db, pub),
+		Handler:           httpapi.NewRouter(db, pub, authCfg),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	go func() {
@@ -83,6 +98,9 @@ func main() {
 
 	tick := time.Duration(tickSec) * time.Second
 	slog.Info("starting poller", "tick", tick.String(), "queue", publisher.FetchQueue, "api_key_present", apiKey != "")
+
+	// Session sweep: run once at startup, then hourly in the background.
+	go runSessionSweep(ctx, db)
 
 	if err := p.RunOnce(ctx); err != nil && ctx.Err() == nil {
 		slog.Error("initial poll failed", "err", err)
@@ -103,6 +121,29 @@ func main() {
 			if err := p.RunOnce(ctx); err != nil && ctx.Err() == nil {
 				slog.Error("poll failed", "err", err)
 			}
+		}
+	}
+}
+
+func runSessionSweep(ctx context.Context, db *sql.DB) {
+	sweep := func() {
+		n, err := auth.SweepExpiredSessions(ctx, db)
+		if err != nil {
+			slog.Error("auth.session.sweep_failed", "err", err)
+			return
+		}
+		slog.Info("auth.session.sweep", "deleted", n)
+	}
+	sweep() // one at startup to catch anything from downtime
+
+	ticker := time.NewTicker(time.Hour)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			sweep()
 		}
 	}
 }

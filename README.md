@@ -12,7 +12,10 @@ HTTP API), Python (enrichment worker + digest worker), RabbitMQ, PostgreSQL.
   length, publication-type allow/blocklists), `GET /articles/recent` endpoint ✓
 - **M4** — daily email digest: scheduled + manual-trigger delivery with Jinja HTML
   templates, SMTP with STARTTLS, Mailpit for dev, `POST /digest/trigger` ✓
-- **M5** — later: dead-letter queue, bounded retries, observability
+- **M5a** — auth backend: user accounts, argon2id password hashing, Postgres-backed
+  sessions with HttpOnly/SameSite=Strict cookies, login/logout/me endpoints,
+  CLI admin bootstrap ✓
+- **M5b** and later: query CRUD, article endpoints scoped by user, frontend
 
 ## Seed query (applied by migrations)
 
@@ -82,8 +85,17 @@ Set `DIGEST_MODE` in `.env`:
 
 ## HTTP endpoints (bound to 127.0.0.1:8080)
 
+Auth (public):
+- `POST /api/auth/login` — body `{"username":"...","password":"..."}` → sets session cookie
+- `POST /api/auth/logout` — clears session
+- `GET /api/auth/me` — returns `{"user":{...}}` for the current session, 401 otherwise
+
+Operational:
 - `GET /articles/recent?limit=50` — recent articles with matched queries embedded
 - `POST /digest/trigger` — enqueue a manual digest run
+
+**First-time setup** requires creating an admin via CLI — see
+[docs/DEPLOY.md](docs/DEPLOY.md) for the bootstrap sequence.
 
 ```bash
 curl -s 'http://localhost:8080/articles/recent?limit=10' | jq '.articles[] | {pmid, title, matched: [.matched_queries[].name]}'
