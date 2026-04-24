@@ -33,7 +33,3 @@ def setup_logging(level: int = logging.INFO) -> None:
     root = logging.getLogger()
     root.handlers = [handler]
     root.setLevel(level)
-
-
-def get_logger(name: str) -> logging.Logger:
-    return logging.getLogger(name)

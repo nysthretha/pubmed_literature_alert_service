@@ -26,9 +26,13 @@ func New(s *store.Store, c *pubmed.Client, p *publisher.Publisher) *Poller {
 }
 
 func (p *Poller) RunOnce(ctx context.Context) error {
-	queries, err := p.store.Queries(ctx)
+	queries, err := p.store.DueQueries(ctx)
 	if err != nil {
 		return err
+	}
+	if len(queries) == 0 {
+		slog.Debug("no due queries")
+		return nil
 	}
 	for _, q := range queries {
 		if err := ctx.Err(); err != nil {

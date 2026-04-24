@@ -18,7 +18,7 @@ No email digest yet — that's a later milestone.
 
 | name | query_string |
 |---|---|
-| HEART score | `("HEART score"[tiab] OR "HEART pathway"[tiab])` |
+| HEART score | `("HEART score"[tiab] OR "HEART pathway"[tiab]) AND humans[mh]` |
 
 ## Prerequisites
 

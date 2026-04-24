@@ -1,18 +1,9 @@
 from __future__ import annotations
 
-import time
 from dataclasses import dataclass
 from datetime import date
 
-import httpx
 from lxml import etree
-
-from .logging_setup import get_logger
-from .ratelimit import RateLimiter
-
-EUTILS_BASE = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
-
-log = get_logger(__name__)
 
 
 @dataclass
@@ -32,48 +23,6 @@ class Article:
     publication_date: date | None
     authors: list[Author]
     publication_types: list[str]
-
-
-class EFetchClient:
-    def __init__(self, tool: str, email: str, api_key: str | None):
-        self.tool = tool
-        self.email = email
-        self.api_key = api_key
-        self.limiter = RateLimiter(min_interval=0.10 if api_key else 0.34)
-        self.client = httpx.Client(timeout=30.0)
-
-    def fetch(self, pmid: str) -> bytes:
-        params = {
-            "db": "pubmed",
-            "id": pmid,
-            "retmode": "xml",
-            "tool": self.tool,
-            "email": self.email,
-        }
-        if self.api_key:
-            params["api_key"] = self.api_key
-
-        last_err: Exception | None = None
-        for attempt in range(3):
-            self.limiter.wait()
-            t0 = time.monotonic()
-            try:
-                resp = self.client.get(f"{EUTILS_BASE}/efetch.fcgi", params=params)
-                duration_ms = int((time.monotonic() - t0) * 1000)
-                if resp.status_code >= 500:
-                    last_err = httpx.HTTPStatusError(
-                        f"efetch status {resp.status_code}",
-                        request=resp.request,
-                        response=resp,
-                    )
-                else:
-                    resp.raise_for_status()
-                    log.info("efetch ok", extra={"pmid": pmid, "duration_ms": duration_ms, "attempt": attempt + 1})
-                    return resp.content
-            except httpx.HTTPError as e:
-                last_err = e
-            time.sleep(2 ** attempt)
-        raise RuntimeError(f"efetch failed for pmid={pmid}: {last_err}")
 
 
 def parse_pubmed_xml(xml_bytes: bytes, pmid: str) -> Article:
