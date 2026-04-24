@@ -103,3 +103,9 @@ func (p *Publisher) Close() {
 		p.conn.Close()
 	}
 }
+
+// IsHealthy reports whether the underlying AMQP connection is still open.
+// Used by the /healthz endpoint.
+func (p *Publisher) IsHealthy() bool {
+	return p.conn != nil && !p.conn.IsClosed()
+}

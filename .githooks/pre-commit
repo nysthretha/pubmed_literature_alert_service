@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Pre-commit hook: run scan-diff.sh on staged changes.
+#
+# Install: `make install-hooks` (runs `git config core.hooksPath .githooks`)
+#
+# Escape hatch: `git commit --no-verify` skips this hook. CI still runs the
+# same scanner against the push/PR diff, so genuine leaks won't land on main
+# regardless.
+
+set -e
+dir="$(git rev-parse --show-toplevel)"
+bash "$dir/.githooks/scan-diff.sh" --staged

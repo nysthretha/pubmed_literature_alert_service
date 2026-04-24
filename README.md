@@ -26,7 +26,10 @@ HTTP API), Python (enrichment worker + digest worker), RabbitMQ, PostgreSQL.
   detail drawer. Digests: history list + detail + send-test button. Account:
   profile / change-password / admin Users tab. Backend added
   `POST /api/auth/change-password`. ✓
-- **M5e** — production Dockerfile, embed `web/dist/` into the Go binary
+- **M5e** — production deploy on Railway: multi-stage Dockerfile with embedded
+  SPA (build-tag split), `/healthz` with PG+RabbitMQ checks, GitHub Actions
+  CI (go-tests / python-check / frontend / secret-scan), pre-commit credential
+  scanner, Healthchecks.io liveness ping. See [docs/DEPLOY.md](docs/DEPLOY.md). ✓
 
 ## Seed query (applied by migrations)
 

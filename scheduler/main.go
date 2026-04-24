@@ -23,7 +23,16 @@ import (
 	"github.com/nysthretha/pubmed_literature_alert_service/scheduler/migrations"
 )
 
-const httpAddr = ":8080"
+// httpAddrFrom returns the bind address for the HTTP server. Railway injects
+// $PORT per service; in dev / compose we use the pinned 8080. Binds to all
+// interfaces so it's reachable through Docker's port mapping and Railway's
+// proxy; restriction to localhost in dev happens at the compose layer.
+func httpAddrFrom(env func(string) string) string {
+	if p := env("PORT"); p != "" {
+		return ":" + p
+	}
+	return ":8080"
+}
 
 func main() {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})))
@@ -84,9 +93,10 @@ func main() {
 		CookieSecure: cookieSecure,
 	}
 
+	httpAddr := httpAddrFrom(os.Getenv)
 	httpSrv := &http.Server{
 		Addr:              httpAddr,
-		Handler:           httpapi.NewRouter(db, pub, authCfg),
+		Handler:           httpapi.NewRouter(db, pub, authCfg, webAssets, "web/dist"),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	go func() {
@@ -101,6 +111,10 @@ func main() {
 
 	// Session sweep: run once at startup, then hourly in the background.
 	go runSessionSweep(ctx, db)
+
+	// Optional external liveness ping. If HEALTHCHECK_URL is unset (dev or
+	// staging), the goroutine logs once and exits — no pings, no noise.
+	go runHealthcheckPing(ctx, os.Getenv("HEALTHCHECK_URL"))
 
 	if err := p.RunOnce(ctx); err != nil && ctx.Err() == nil {
 		slog.Error("initial poll failed", "err", err)
@@ -121,6 +135,45 @@ func main() {
 			if err := p.RunOnce(ctx); err != nil && ctx.Err() == nil {
 				slog.Error("poll failed", "err", err)
 			}
+		}
+	}
+}
+
+// runHealthcheckPing sends a GET to HEALTHCHECK_URL every 5 minutes so an
+// external monitor (Healthchecks.io in production) can alert on silence. The
+// pings are fire-and-forget — a failed ping is logged but doesn't crash the
+// scheduler, because the job of the ping is to notice ABSENCE, not presence
+// of individual failures.
+func runHealthcheckPing(ctx context.Context, url string) {
+	if url == "" {
+		slog.Warn("healthcheck.disabled", "note", "HEALTHCHECK_URL not set — skipping external liveness pings")
+		return
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	ping := func() {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			slog.Warn("healthcheck.request_build_failed", "err", err)
+			return
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			slog.Warn("healthcheck.ping_failed", "err", err)
+			return
+		}
+		resp.Body.Close()
+	}
+
+	ping() // one immediately so the first alert window doesn't need 5 min
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			ping()
 		}
 	}
 }
