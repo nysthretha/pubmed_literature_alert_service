@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PubMed Alerts</title>
+
+    <!--
+      Apply the saved theme BEFORE React paints, to avoid a white flash for
+      users who have dark mode selected. Default is dark on first visit per
+      the M5c spec. This small inline script is the standard pattern for
+      theme persistence without FOUC.
+    -->
+    <script>
+      (function () {
+        try {
+          var saved = localStorage.getItem("pubmed-theme");
+          var useDark = saved === "dark" || (saved !== "light");
+          if (useDark) document.documentElement.classList.add("dark");
+        } catch (_) {
+          document.documentElement.classList.add("dark");
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

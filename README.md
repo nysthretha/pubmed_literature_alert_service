@@ -18,7 +18,10 @@ HTTP API), Python (enrichment worker + digest worker), RabbitMQ, PostgreSQL.
 - **M5b** — CRUD/read endpoints for queries/articles/digests scoped by user,
   admin endpoints for user management. Ownership enforced via Pattern A
   (userID as mandatory repo arg) — see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) ✓
-- Later: frontend
+- **M5c** — frontend scaffolding: Vite + React 19 + TypeScript + TanStack
+  Router/Query + Tailwind v4 + shadcn/ui under [web/](web/). Login, authed
+  shell with placeholder pages, dark mode default, Sonner toasts ✓
+- **M5d** — CRUD UI filling the placeholder pages
 
 ## Seed query (applied by migrations)
 
@@ -144,6 +147,31 @@ Queue status: <http://localhost:15672> (guest / guest).
 docker compose down          # keep data
 docker compose down -v       # drop Postgres volume
 ```
+
+## Frontend dev (M5c onwards)
+
+Two terminals:
+
+```bash
+# Terminal 1: backend stack (Postgres, RabbitMQ, Go scheduler on :8080, workers)
+docker compose up -d
+
+# Terminal 2: Vite dev server on :5173, proxies /api/* to :8080
+cd web
+npm install         # first time only
+npm run dev
+```
+
+Open `http://localhost:5173`. The Vite proxy (`vite.config.ts`) forwards
+`/api/*` calls to the Go scheduler while keeping the browser's origin as
+`localhost:5173` (`changeOrigin: false`) so the SameSite=Strict session
+cookie works across both sides.
+
+Dark mode is the default; toggle in the header. Theme persists in
+`localStorage['pubmed-theme']`.
+
+Production build: `cd web && npm run build` → `web/dist/`. M5e will embed
+this into the Go binary via `go:embed` and serve it as static assets.
 
 ## Layout
 
