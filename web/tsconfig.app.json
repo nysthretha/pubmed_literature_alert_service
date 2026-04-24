@@ -22,7 +22,18 @@
     "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"]
-    }
+    },
+
+    // `baseUrl` is deprecated with removal planned for TS 7, in favour of
+    // bare `paths` resolution relative to tsconfig.json. Shadcn/ui's template
+    // still ships with baseUrl, and restructuring path resolution across the
+    // codebase for a cosmetic warning isn't worth the verification cost.
+    // Revisit when TS 7 ships and shadcn publishes a migration guide.
+    //
+    // Value gotcha: TS 5.9.x's diagnostic text suggests `"6.0"` but its
+    // parser only accepts `"5.0"` (TS5103 on anything else). Upgrade this
+    // to `"6.0"` only after pinning typescript ^6.0.
+    "ignoreDeprecations": "5.0"
   },
   "include": ["src"]
 }
