@@ -8,4 +8,5 @@ func RegisterRoutes(mux *http.ServeMux, cfg Config) {
 	mux.Handle("POST /api/auth/login", LoginHandler(cfg))
 	mux.Handle("POST /api/auth/logout", LogoutHandler(cfg))
 	mux.Handle("GET /api/auth/me", Required(cfg.DB)(MeHandler()))
+	mux.Handle("POST /api/auth/change-password", Required(cfg.DB)(ChangePasswordHandler(cfg)))
 }

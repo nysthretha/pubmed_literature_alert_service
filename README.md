@@ -21,7 +21,12 @@ HTTP API), Python (enrichment worker + digest worker), RabbitMQ, PostgreSQL.
 - **M5c** — frontend scaffolding: Vite + React 19 + TypeScript + TanStack
   Router/Query + Tailwind v4 + shadcn/ui under [web/](web/). Login, authed
   shell with placeholder pages, dark mode default, Sonner toasts ✓
-- **M5d** — CRUD UI filling the placeholder pages
+- **M5d** — real CRUD UI. Queries: create/edit/delete/repoll with a pub-type
+  combobox. Articles: 2-line table with abstract snippet, search + filters +
+  detail drawer. Digests: history list + detail + send-test button. Account:
+  profile / change-password / admin Users tab. Backend added
+  `POST /api/auth/change-password`. ✓
+- **M5e** — production Dockerfile, embed `web/dist/` into the Go binary
 
 ## Seed query (applied by migrations)
 

@@ -28,3 +28,15 @@ export async function getCurrentUser(): Promise<User> {
   const { user } = await apiRequest<{ user: User }>("/api/auth/me");
   return user;
 }
+
+export interface ChangePasswordInput {
+  current_password: string;
+  new_password: string;
+}
+
+export async function changePassword(input: ChangePasswordInput): Promise<void> {
+  await apiRequest<void, ChangePasswordInput>("/api/auth/change-password", {
+    method: "POST",
+    body: input,
+  });
+}

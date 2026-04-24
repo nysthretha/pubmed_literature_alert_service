@@ -64,7 +64,14 @@ export async function apiRequest<TResponse, TBody = unknown>(
   const res = await fetch(path, init);
 
   if (!res.ok) {
-    throw await extractError(res);
+    const err = await extractError(res);
+    // Global 401 notifier: routes listen and invalidate the useAuth query,
+    // which triggers the _auth guard's redirect to /login. Centralising this
+    // means components don't need to each check for session expiry.
+    if (res.status === 401) {
+      window.dispatchEvent(new CustomEvent("auth:unauthorized"));
+    }
+    throw err;
   }
 
   // 204 No Content: nothing to parse. Caller should type TResponse as void.

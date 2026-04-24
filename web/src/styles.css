@@ -1,8 +1,5 @@
 @import "tailwindcss";
-/* NOTE: shadcn animations (accordion etc.) aren't used by any M5c component.
-   When M5d introduces animated components, add tw-animate-css via
-   `@source "../node_modules/tw-animate-css/dist/tw-animate.css";` or
-   equivalent — the package's exports field currently blocks direct import. */
+@import "tw-animate-css";
 
 /* Tailwind v4 dark-mode strategy: class on <html>.
    Parse: "the dark variant matches when any ancestor has class 'dark'". */
