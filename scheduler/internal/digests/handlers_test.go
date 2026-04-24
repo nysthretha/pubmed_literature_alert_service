@@ -9,7 +9,9 @@ import (
 	"net/http/httptest"
 	"os"
 	"strconv"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/nysthretha/pubmed_literature_alert_service/scheduler/internal/auth"
 	"github.com/nysthretha/pubmed_literature_alert_service/scheduler/internal/digests"
@@ -63,6 +65,56 @@ func seedDigest(t *testing.T, userID int64, articlesCount int) int64 {
 		t.Fatalf("insert digest: %v", err)
 	}
 	return id
+}
+
+// Regression: the digests_one_sent_per_day unique index was originally
+// scoped by sent_local_date alone (migration 00004, pre-users). Migration
+// 00008 made it UNIQUE(user_id, sent_local_date) so two users can each send
+// one digest per day. This test fails if that migration is missing or wrong.
+func TestUniqueIndex_DigestsScopedByUser(t *testing.T) {
+	resetTables(t)
+	ctx := context.Background()
+	alice, _ := testsupport.SeedUser(ctx, testDB, "alice", "alice@test", "alicepassword", false)
+	bob, _ := testsupport.SeedUser(ctx, testDB, "bob", "bob@test", "bobpassword12", false)
+
+	localDate := time.Date(2026, 4, 24, 0, 0, 0, 0, time.UTC)
+
+	// Alice sends one.
+	if _, err := testDB.ExecContext(ctx, `
+		INSERT INTO digests (user_id, status, sent_local_date, articles_included)
+		VALUES ($1, 'sent', $2, 3)
+	`, alice.ID, localDate); err != nil {
+		t.Fatalf("alice first digest: %v", err)
+	}
+
+	// Bob sends one on the same date — must succeed (different user).
+	if _, err := testDB.ExecContext(ctx, `
+		INSERT INTO digests (user_id, status, sent_local_date, articles_included)
+		VALUES ($1, 'sent', $2, 5)
+	`, bob.ID, localDate); err != nil {
+		t.Fatalf("bob digest on alice's date should succeed after 00008: %v", err)
+	}
+
+	// Alice tries a second sent-digest for the same date — must fail.
+	_, err := testDB.ExecContext(ctx, `
+		INSERT INTO digests (user_id, status, sent_local_date, articles_included)
+		VALUES ($1, 'sent', $2, 7)
+	`, alice.ID, localDate)
+	if err == nil {
+		t.Fatal("alice second sent-digest on same date should be blocked")
+	}
+	if !strings.Contains(err.Error(), "23505") && !strings.Contains(err.Error(), "unique") {
+		t.Fatalf("expected unique-violation error, got: %v", err)
+	}
+
+	// 'failed' and 'pending' rows are NOT subject to the partial index —
+	// alice can have multiple failed attempts on the same date.
+	if _, err := testDB.ExecContext(ctx, `
+		INSERT INTO digests (user_id, status, sent_local_date, articles_included)
+		VALUES ($1, 'failed', $2, 0)
+	`, alice.ID, localDate); err != nil {
+		t.Fatalf("alice failed-digest row should be allowed: %v", err)
+	}
 }
 
 func TestIsolation_DigestsScopedToUser(t *testing.T) {
