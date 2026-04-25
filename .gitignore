@@ -8,3 +8,8 @@ scheduler/scheduler
 previews/
 .DS_Store
 .claude/
+
+# WSL/Windows: when files are downloaded or copied via Explorer, NTFS appends
+# a Zone.Identifier alternate stream that surfaces in Linux as a sibling
+# `<file>:Zone.Identifier` entry. Never tracked.
+*:Zone.Identifier
