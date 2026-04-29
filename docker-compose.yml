@@ -47,8 +47,8 @@ services:
 
   worker:
     build:
-      context: ./worker
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: worker/Dockerfile
     env_file: .env
     depends_on:
       rabbitmq:
@@ -61,8 +61,8 @@ services:
 
   digest_worker:
     build:
-      context: ./worker
-      dockerfile: Dockerfile.digest
+      context: .
+      dockerfile: worker/Dockerfile.digest
     env_file: .env
     volumes:
       - ./previews:/app/digest-preview
