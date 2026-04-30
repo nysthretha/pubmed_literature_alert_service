@@ -37,6 +37,7 @@ def main() -> int:
         smtp_port=int(os.environ["SMTP_PORT"]) if os.environ.get("SMTP_PORT") else None,
         smtp_user=os.environ.get("SMTP_USER") or None,
         smtp_password=os.environ.get("SMTP_PASSWORD") or None,
+        brevo_api_key=os.environ.get("BREVO_API_KEY") or None,
     )
 
     pg_conn = connect_db(pg_url)

@@ -160,10 +160,12 @@ Set `DIGEST_MODE` in `.env`:
 |---|---|
 | `file` *(default)* | Render HTML to `./previews/<timestamp>.html`. No SMTP, no DB writes. Articles stay pending so you can iterate on the template. |
 | `mailpit` | Send to the local Mailpit container on port 1025 (no auth). Full DB flow (`digests` row, `digest_articles` inserts). View at <http://localhost:8025>. |
-| `smtp` | Send for real via `SMTP_HOST:SMTP_PORT` with STARTTLS. |
+| `smtp` | Send for real via `SMTP_HOST:SMTP_PORT` with STARTTLS. Use this when outbound SMTP works on your platform (self-hosted, Brevo Pro, etc.). |
+| `brevo_api` | Send via Brevo's HTTPS transactional email API. **Recommended for cloud platforms that block outbound SMTP** — Railway's Hobby plan blocks port 587, and Brevo's docs explicitly recommend the HTTPS API as the workaround. Requires `BREVO_API_KEY` and a verified sender at <https://app.brevo.com/senders/list>. |
 
 For SMTP, [Brevo](https://www.brevo.com)'s free tier (300 emails/day) is a
 good fit. Gmail SMTP also works with an app password but has lower deliverability.
+On Railway Hobby (or any platform that blocks SMTP), use `brevo_api` instead.
 
 ### Inspect
 

@@ -52,20 +52,59 @@ credentials rotate automatically when the managed service rotates them.
 | `HEALTHCHECK_URL` | from Healthchecks.io (see below) | Optional but recommended |
 | `PORT` | set by Railway automatically | |
 
-**digest_worker only** (SMTP via Brevo):
+**digest_worker only** (Brevo HTTPS API — Railway-recommended):
+
+> **Railway blocks outbound SMTP on the Hobby plan.** Use `DIGEST_MODE=brevo_api`,
+> not `smtp`. SMTP mode will hang on connection, fail the digest, and write a
+> `failed` row to the `digests` table every send window. The brevo_api mode
+> uses Brevo's HTTPS transactional email endpoint, which is the approach
+> Brevo's own docs and Railway's docs both recommend for cloud deployments.
 
 | Var | Value |
 |---|---|
-| `DIGEST_MODE` | `smtp` |
+| `DIGEST_MODE` | `brevo_api` |
 | `DIGEST_SEND_HOUR` | `7` |
 | `DIGEST_TIMEZONE` | `Europe/Istanbul` |
 | `DIGEST_RECIPIENT` | your real email |
 | `DIGEST_SUBJECT_PREFIX` | `PubMed Alerts` |
+| `SMTP_FROM` | sender address (must be verified — see step 2a below) |
+| `BREVO_API_KEY` | Brevo API key (NOT the SMTP password — see step 2b below) |
+
+#### 2a. Verify your sender in Brevo
+
+Brevo rejects API requests with an `unverified sender` error if `SMTP_FROM`
+isn't on your verified-senders list. One-time setup:
+
+1. Go to <https://app.brevo.com/senders/list>.
+2. Click **Add a sender**, enter the email and a display name.
+3. Brevo emails a verification link. Click it.
+4. Confirm the sender shows as ✅ verified in the list.
+
+#### 2b. Generate a Brevo API key
+
+The API key is **distinct from the SMTP credentials** Brevo also offers in
+the same dashboard. The digest worker only uses the API key for `brevo_api`
+mode.
+
+1. Go to <https://app.brevo.com/settings/keys/api>.
+2. Click **Generate a new API key**.
+3. Name it (e.g. `pubmed-alerts-prod`) and confirm.
+4. Copy the key once — Brevo doesn't show it again.
+5. Paste into Railway → digest_worker → Variables → `BREVO_API_KEY`.
+
+#### Self-hosted / SMTP-allowed alternative
+
+If you're deploying somewhere that allows outbound SMTP (self-hosted, a Pro
+Railway plan, or any VPS), you can use the SMTP path instead:
+
+| Var | Value |
+|---|---|
+| `DIGEST_MODE` | `smtp` |
 | `SMTP_HOST` | `smtp-relay.brevo.com` |
 | `SMTP_PORT` | `587` |
-| `SMTP_USER` | your Brevo SMTP login |
-| `SMTP_PASSWORD` | your Brevo SMTP key |
-| `SMTP_FROM` | sender address (verified in Brevo) |
+| `SMTP_USER` | Brevo SMTP login (different from the API key) |
+| `SMTP_PASSWORD` | Brevo SMTP key |
+| `SMTP_FROM` | verified sender address |
 
 ### 3. Bootstrap the admin user (first deploy only)
 
